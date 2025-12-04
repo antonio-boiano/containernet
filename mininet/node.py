@@ -769,7 +769,8 @@ class Docker ( Host ):
                      'sysctls': {},
                      'shm_size': '64mb',
                      'cpus': None,
-                     'device_requests': []
+                     'device_requests': [],
+                     'user': None  # Username or UID to run container as
                      }
         defaults.update( kwargs )
 
@@ -802,6 +803,7 @@ class Docker ( Host ):
         self.cap_add = defaults['cap_add']
         self.sysctls = defaults['sysctls']
         self.storage_opt = defaults['storage_opt']
+        self.user = defaults['user']
 
         # setup docker client
         # self.dcli = docker.APIClient(base_url='unix://var/run/docker.sock')
@@ -879,6 +881,7 @@ class Docker ( Host ):
             labels=['com.containernet'],
             volumes=[self._get_volume_mount_name(v) for v in self.volumes if self._get_volume_mount_name(v) is not None],
             hostname=name,
+            user=self.user,
         )
 
         # start the container
