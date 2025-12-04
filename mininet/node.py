@@ -742,10 +742,11 @@ class Docker ( Host ):
         """
         self.dimage = dimage
         self.dnameprefix = "mn"
-        self.dcmd = dcmd if dcmd is not None else "/bin/bash"
+        self.dcmd = dcmd  # will be set after container starts if None
         self.dc = None  # pointer to the dict containing 'Id' and 'Warnings' keys of the container
         self.dcinfo = None
         self.did = None # Id of running container
+        self.shell_path = None  # will store the detected shell path
         #  let's store our resource limits to have them available through the
         #  Mininet API later on
         defaults = { 'cpu_quota': None,
@@ -889,6 +890,12 @@ class Docker ( Host ):
         self.dcinfo = self.dcli.inspect_container(self.dc)
         self.did = self.dcinfo.get("Id")
 
+        # Detect available shell (bash or sh) and set dcmd if not provided
+        self.shell_path = self._detect_available_shell()
+        if self.dcmd is None:
+            self.dcmd = self.shell_path
+            debug("Detected shell: %s\n" % self.shell_path)
+
         # call original Node.__init__
         Host.__init__(self, name, **kwargs)
 
@@ -902,6 +909,31 @@ class Docker ( Host ):
         image, output = self.d_client.images.build(**kwargs)
         output_str = parse_build_output(output)
         return image.id, output_str
+
+    def _detect_available_shell(self):
+        """
+        Detect which shell is available in the container.
+        Tries /bin/bash first, then falls back to /bin/sh.
+        Returns the path to the available shell.
+        """
+        shells_to_try = ["/bin/bash", "/bin/sh"]
+        for shell in shells_to_try:
+            try:
+                # Try to execute the shell with a simple command
+                result = self.dcli.exec_create(
+                    container=self.dc,
+                    cmd=["test", "-x", shell]
+                )
+                exec_output = self.dcli.exec_start(result['Id'])
+                exec_info = self.dcli.exec_inspect(result['Id'])
+                if exec_info['ExitCode'] == 0:
+                    debug("Shell %s is available in container %s\n" % (shell, self.name))
+                    return shell
+            except Exception as ex:
+                debug("Shell %s not found in container %s: %s\n" % (shell, self.name, ex))
+        # Default to /bin/sh if nothing else works
+        warn("Warning: Could not detect shell in container %s, defaulting to /bin/sh\n" % self.name)
+        return "/bin/sh"
 
     def start(self):
         # Containernet ignores the CMD field of the Dockerfile.
@@ -931,15 +963,15 @@ class Docker ( Host ):
         Try to find the original CMD command of the Dockerfile
         by inspecting the Docker image.
         Returns list from CMD field if it is different from
-        a single /bin/bash command which Containernet executes
+        a single /bin/bash or /bin/sh command which Containernet executes
         anyhow.
         """
         try:
             imgd = self.dcli.inspect_image(imagename)
             cmd = imgd.get("Config", {}).get("Cmd")
             assert isinstance(cmd, list)
-            # filter the default case: a single "/bin/bash"
-            if "/bin/bash" in cmd and len(cmd) == 1:
+            # filter the default case: a single "/bin/bash" or "/bin/sh"
+            if len(cmd) == 1 and (cmd[0] in ["/bin/bash", "/bin/sh"]):
                 return None
             return cmd
         except BaseException as ex:
@@ -978,8 +1010,16 @@ class Docker ( Host ):
         # bash -i: force interactive
         # -s: pass $* to shell, and make process easy to find in ps
         # prompt is set to sentinel chr( 127 )
+        
+        # Use detected shell path, with appropriate options
+        shell_name = os.path.basename(self.shell_path)
+        if shell_name == "bash":
+            shell_args = ['--norc', '-is', 'mininet:' + self.name]
+        else:  # sh or other shells
+            shell_args = ['-i']
+            
         cmd = [ 'docker', 'exec', '-it',  '%s.%s' % ( self.dnameprefix, self.name ), 'env', 'PS1=' + chr( 127 ),
-                'bash', '--norc', '-is', 'mininet:' + self.name ]
+                self.shell_path ] + shell_args
         # Spawn a shell subprocess in a pseudo-tty, to disable buffering
         # in the subprocess and insulate it from signals (e.g. SIGINT)
         # received by the parent
