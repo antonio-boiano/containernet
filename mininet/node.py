@@ -919,7 +919,9 @@ class Docker ( Host ):
         shells_to_try = ["/bin/bash", "/bin/sh"]
         for shell in shells_to_try:
             try:
-                # Try to execute the shell with a simple command
+                # Use 'test -x' to check if shell is executable
+                # This is more portable than 'which' or 'command -v' and works
+                # in minimal containers without these utilities
                 result = self.dcli.exec_create(
                     container=self.dc,
                     cmd=["test", "-x", shell]
@@ -1016,9 +1018,11 @@ class Docker ( Host ):
         if not self.shell_path:
             error( "%s: shell_path not detected, cannot start shell\n" % self.name )
             return
-            
-        shell_name = os.path.basename(self.shell_path)
-        if shell_name == "bash":
+        
+        # Detect shell type by checking if 'bash' is in the path (more robust than basename)
+        # This handles cases like /bin/bash, /usr/local/bin/bash, etc.
+        is_bash = 'bash' in self.shell_path.lower()
+        if is_bash:
             shell_args = ['--norc', '-is', 'mininet:' + self.name]
         else:  # sh or other shells
             shell_args = ['-i']
