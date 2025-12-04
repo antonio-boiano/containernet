@@ -924,12 +924,12 @@ class Docker ( Host ):
                     container=self.dc,
                     cmd=["test", "-x", shell]
                 )
-                exec_output = self.dcli.exec_start(result['Id'])
+                self.dcli.exec_start(result['Id'])
                 exec_info = self.dcli.exec_inspect(result['Id'])
                 if exec_info['ExitCode'] == 0:
                     debug("Shell %s is available in container %s\n" % (shell, self.name))
                     return shell
-            except Exception as ex:
+            except (docker.errors.APIError, docker.errors.DockerException) as ex:
                 debug("Shell %s not found in container %s: %s\n" % (shell, self.name, ex))
         # Default to /bin/sh if nothing else works
         warn("Warning: Could not detect shell in container %s, defaulting to /bin/sh\n" % self.name)
@@ -1012,6 +1012,11 @@ class Docker ( Host ):
         # prompt is set to sentinel chr( 127 )
         
         # Use detected shell path, with appropriate options
+        # Ensure shell_path is set (should be set during __init__, but check for safety)
+        if not self.shell_path:
+            error( "%s: shell_path not detected, cannot start shell\n" % self.name )
+            return
+            
         shell_name = os.path.basename(self.shell_path)
         if shell_name == "bash":
             shell_args = ['--norc', '-is', 'mininet:' + self.name]
