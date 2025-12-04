@@ -679,6 +679,36 @@ class testContainernetContainerStorageOptAPI( simpleTestTopology ):
         # stop Mininet network
         self.stopNet()
 
+class testContainernetUserAPI( simpleTestTopology ):
+    """
+    Test to check the user parameter API of the Docker integration.
+    """
+
+    def testUserParameter( self ):
+        """
+        Test that containers run as specified user
+        """
+        # create network
+        self.createNet(nswitches=1, nhosts=0, ndockers=0)
+        # add dockers with different users
+        d0 = self.net.addDocker('d0', ip='10.0.0.1', dimage="ubuntu:trusty", user='root')
+        d1 = self.net.addDocker('d1', ip='10.0.0.2', dimage="ubuntu:trusty", user='nobody')
+        d2 = self.net.addDocker('d2', ip='10.0.0.3', dimage="ubuntu:trusty")  # no user specified, should use image default
+        # setup links (we always need one connection to suppress warnings)
+        self.net.addLink(d0, self.s[0])
+        self.net.addLink(d1, self.s[0])
+        self.net.addLink(d2, self.s[0])
+        # start Mininet network
+        self.startNet()
+        # check number of running docker containers
+        self.assertTrue(len(self.net.hosts) == 3)
+        # check that d0 runs as root
+        self.assertTrue("uid=0(root)" in d0.cmd("id"))
+        # check that d1 runs as nobody
+        self.assertTrue("nobody" in d1.cmd("id"))
+        # stop Mininet network
+        self.stopNet()
+
 class testCustomTopologies( unittest.TestCase ):
     """
     Test the behaviour of custom containernet topologies.
